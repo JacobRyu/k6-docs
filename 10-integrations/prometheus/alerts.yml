@@ -1,0 +1,40 @@
+# 長時間試験（soak / stress）向けのアラート例。
+# 数分の CI スモークは k6 の threshold で判定し、ここは使わない。
+groups:
+  - name: k6-load-test
+    rules:
+      - alert: K6ErrorRateHigh
+        expr: max by (testid, scenario) (k6_http_req_failed_rate) > 0.01
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "k6: エラー率が 1% を超えています"
+          description: "testid={{ $labels.testid }} / scenario={{ $labels.scenario }}"
+
+      - alert: K6LatencyP95High
+        expr: max by (testid, name) (k6_http_req_duration_p95) > 500
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "k6: p95 レイテンシが 500ms を超えています"
+          description: "testid={{ $labels.testid }} / name={{ $labels.name }}"
+
+      - alert: K6DroppedIterations
+        expr: sum by (testid) (rate(k6_dropped_iterations_total[1m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "k6: 負荷生成側が飽和しています"
+          description: "dropped_iterations が出ています。結果は過小評価の可能性があります。"
+
+      - alert: K6NoRequests
+        expr: sum by (testid) (rate(k6_http_reqs_total[2m])) == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "k6: リクエストが送られていません"
+          description: "スクリプト停止・接続失敗・誤った BASE_URL の可能性があります。"

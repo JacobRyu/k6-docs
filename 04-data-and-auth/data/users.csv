@@ -1,0 +1,11 @@
+email,plan,tenant
+loadtest-01@example.com,free,loadtest
+loadtest-02@example.com,free,loadtest
+loadtest-03@example.com,pro,loadtest
+loadtest-04@example.com,pro,loadtest
+loadtest-05@example.com,enterprise,loadtest
+loadtest-06@example.com,free,loadtest
+loadtest-07@example.com,free,loadtest
+loadtest-08@example.com,pro,loadtest
+loadtest-09@example.com,pro,loadtest
+loadtest-10@example.com,enterprise,loadtest

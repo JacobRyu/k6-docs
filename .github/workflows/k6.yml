@@ -1,0 +1,142 @@
+name: k6
+
+on:
+  pull_request:
+    paths:
+      - "**/*.js"
+      - "mock/**"
+      - ".github/workflows/k6.yml"
+  push:
+    branches: [main]
+  schedule:
+    # 毎日 03:00 JST (18:00 UTC)
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: k6-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # PR / push: 短時間の性能ゲート。失敗したらマージを止める。
+  smoke:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: "2.3.0"
+
+      - name: Start mock API
+        run: |
+          python3 mock/server.py &
+          curl -sf --retry 20 --retry-delay 1 --retry-connrefused \
+            http://localhost:8080/health > /dev/null
+
+      - name: Run smoke test
+        run: |
+          mkdir -p reports
+          k6 run \
+            -e BASE_URL="$BASE_URL" \
+            --tag testid="smoke-$GITHUB_SHA" \
+            --summary-export=reports/smoke-summary.json \
+            01-introduction/smoke.js
+        env:
+          BASE_URL: ${{ vars.K6_BASE_URL || 'http://localhost:8080' }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-smoke-${{ github.run_id }}
+          path: reports/
+          retention-days: 14
+
+  # 夜間: 想定ピークでのロードテスト。staging の URL が必須。
+  load:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: "2.3.0"
+
+      - name: Require staging URL
+        run: |
+          if [ -z "$BASE_URL" ]; then
+            echo "::error::K6_BASE_URL が未設定です。staging の URL をリポジトリ/Environment 変数に設定してください。"
+            exit 1
+          fi
+        env:
+          BASE_URL: ${{ vars.K6_BASE_URL }}
+
+      - name: Run load test
+        run: |
+          mkdir -p reports
+          k6 run \
+            -e BASE_URL="$BASE_URL" \
+            --tag testid="$GITHUB_SHA" \
+            --summary-export=reports/summary.json \
+            03-load-profiles/ramping-vus.js
+        env:
+          BASE_URL: ${{ vars.K6_BASE_URL }}
+
+      - name: Show key metrics
+        if: always()
+        run: |
+          if [ -f reports/summary.json ]; then
+            jq -r '
+              "p95: " + (.metrics.http_req_duration.values["p(95)"] | tostring) + " ms",
+              "p99: " + (.metrics.http_req_duration.values["p(99)"] | tostring) + " ms",
+              "failed: " + ((.metrics.http_req_failed.values.rate * 100) | tostring) + " %",
+              "rps: " + (.metrics.http_reqs.values.rate | tostring)
+            ' reports/summary.json
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-load-${{ github.run_id }}
+          path: reports/
+          retention-days: 30
+
+  # 参考: 認証が必要なシナリオ。Secrets は env 経由で渡し、-e で明示する。
+  auth-smoke:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: "2.3.0"
+
+      - name: Start mock API
+        run: |
+          python3 mock/server.py &
+          curl -sf --retry 20 --retry-delay 1 --retry-connrefused \
+            http://localhost:8080/health > /dev/null
+
+      - name: Run authenticated smoke test
+        run: |
+          k6 run \
+            -e BASE_URL="$BASE_URL" \
+            -e USERNAME="$K6_USER" \
+            -e PASSWORD="$K6_PASS" \
+            --tag testid="auth-$GITHUB_SHA" \
+            04-data-and-auth/auth.js
+        env:
+          BASE_URL: ${{ vars.K6_BASE_URL || 'http://localhost:8080' }}
+          K6_USER: ${{ secrets.K6_USER || 'demo' }}
+          K6_PASS: ${{ secrets.K6_PASS || 'demo' }}

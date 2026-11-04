@@ -1,0 +1,10 @@
+reports/
+results/
+*.json
+*.csv
+!04-data-and-auth/data/*.csv
+# Grafana のプロビジョニング用ダッシュボードはコミットする
+!10-integrations/stack/grafana/dashboards/*.json
+.env
+.DS_Store
+node_modules/
