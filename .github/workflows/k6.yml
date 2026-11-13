@@ -8,9 +8,9 @@ on:
       - ".github/workflows/k6.yml"
   push:
     branches: [main]
-  schedule:
-    # 毎日 03:00 JST (18:00 UTC)
-    - cron: "0 18 * * *"
+  # Scheduled実行は停止中（毎日 03:00 JST で運用していた場合は下記をコメント解除）
+  # schedule:
+  #   - cron: "0 18 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -58,9 +58,9 @@ jobs:
           path: reports/
           retention-days: 14
 
-  # 夜間: 想定ピークでのロードテスト。staging の URL が必須。
+  # 手動実行: 想定ピークでのロードテスト。staging の URL が必須。
   load:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: staging
